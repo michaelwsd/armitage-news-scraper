@@ -1,11 +1,10 @@
 import os
 import json
+import asyncio
 import logging
-from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from company_url.serp_company_url import get_company_url
-from firmable import get_company_info
 from perplexity import Perplexity
+from datetime import datetime, timedelta
 
 # -------------------------------------------------------------------
 # Logging configuration
@@ -66,7 +65,13 @@ def parse_date(article):
         logger.warning(f"Could not parse date: '{date_str}'. Sorting to end.")
         return datetime.min
 
-def pull_news_perplexity(company_name, location, timeframe):
+async def scrape_news_perplexity(company_info, timeframe):
+    company_name = company_info['name']
+    company_city = company_info['city']
+    company_hq_location = company_info['hq_location']
+    company_website = company_info['website']
+    company_industry = company_info['industry']
+
     start_date = None 
     now = datetime.now()
 
@@ -79,29 +84,19 @@ def pull_news_perplexity(company_name, location, timeframe):
     elif timeframe == "day":
         start_date = (now - timedelta(days=1)).strftime("%-m/%-d/%Y")
 
-    logger.info(f"Starting news pull for company={company_name}, location={location} after {start_date}")
+    logger.info(f"Starting news pull for company={company_name}, location={company_city} after {start_date}")
 
     try:
-        company_url = get_company_url(company_name, location)
-        logger.debug("Resolved company URL: %s", company_url)
-
-        company_info = get_company_info(
-            company_url,
-            True if "linkedin" in company_url else False
-        )
-
-        logger.debug("Retrieved company info: %s", company_info)
-
         hq_sentence = (
-                        f"{company_name} is currently headquartered at {company_info['hq_location']}. "
+                        f"{company_name} is currently headquartered at {company_hq_location}. "
                         if company_info.get("hq_location")
                         else ""
                     )
 
         user_prompt = (
-            f"The company you will be finding news articles for is {company_name} located in {location}. "
+            f"The company you will be finding news articles for is {company_name} located in {company_city}. "
             f"{hq_sentence}"
-            f"They are primarily in the {company_info['industry'].lower()} industries. "
+            f"They are primarily in the {company_industry.lower()} industries. "
             f"Find news articles indicating growth (awards, expansion, new hires, "
             f"partnerships, patents, financial success, etc) for {company_name}. "
             "Only return news for this specific company and location, do not confuse it with other companies with similar names."
@@ -110,7 +105,7 @@ def pull_news_perplexity(company_name, location, timeframe):
         logger.info(f"User prompt: {user_prompt}")
 
         logger.info("Sending request to Perplexity model")
-        domains = [company_url, 
+        domains = [company_website, 
                    "afr.com", 
                    "insidesmallbusiness.com.au", 
                    "dynamicbusiness.com",
@@ -135,7 +130,7 @@ def pull_news_perplexity(company_name, location, timeframe):
                             "search_after_date": start_date,
                             "user_location": {
                                                 "country": "AU",
-                                                "city": location,
+                                                "city": company_city,
                                              }
                         },
                         response_format=article_schema
@@ -157,17 +152,22 @@ def pull_news_perplexity(company_name, location, timeframe):
         )
 
         if data:
-            # 1. Create the 'data' directory if it doesn't exist
-            os.makedirs("data", exist_ok=True)
-            
-            # 2. Construct the filename (e.g., "data/LAB Group.json")
+            # 1. Get the project root directory (parent of 'scrapers' folder)
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(script_dir)
+            output_dir = os.path.join(project_root, "data", "output")
+
+            # 2. Create the 'data/output' directory if it doesn't exist
+            os.makedirs(output_dir, exist_ok=True)
+
+            # 3. Construct the filename (e.g., "data/output/LAB Group.json")
             # Using .get("company") ensures we use the exact name returned by the AI
-            filename = f"data/{data.get('company', company_name)}.json"
-            
-            # 3. Save the result
+            filename = os.path.join(output_dir, f"{data.get('company', company_name)}.json")
+
+            # 4. Save the result
             with open(filename, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-                
+
             logger.info(f"Result saved to {filename}")
 
         return data
@@ -180,20 +180,15 @@ def pull_news_perplexity(company_name, location, timeframe):
 # Entrypoint
 # -------------------------------------------------------------------
 if __name__ == "__main__":
-    # batch scrape
-    # companies_list = [
-    #     ("Partmax", "Melbourne"),
-    #     ("GRC Solutions", "Sydney"),
-    #     ("Smartsoft", "Adelaide"),
-    #     ("OnQ Software", "Melbourne"),
-    #     ("LAB Group", "Melbourne"),
-    #     ("Axcelerate", "Brisbane"),
-    #     ("Pharmako Biotechnologies", "Sydney"),
-    #     ("iD4me", "Melbourne")
-    # ]
-
-    # for name, location in companies_list:
-    #     pull_news_perplexity(name, location, "year")
-
     # single scrape
-    pull_news_perplexity("iD4me", "Melbourne", "year")
+    company_info = {
+        'hq_location': '201 Kent St, Level 14, Sydney, NSW, 2000, AU', 
+        'linkedin': 'grc-solutions-pty-ltd', 
+        'industry': 'E-learning and online education', 
+        'website': 'grc-solutions.com', 
+        'name': 'GRC Solutions', 
+        'city': 'Sydney'
+        }
+    
+    data = asyncio.run(scrape_news_perplexity(company_info, "year"))
+    print(json.dumps(data, indent=2))

@@ -27,7 +27,6 @@ def get_company_info(url, linkedin=False):
     extracted = {
         "hq_location": data.get("hq_location"),
         "linkedin": data.get("linkedin"),
-        "website": data.get("website"),
         "industry": data.get("industries")[0]
     }
 
