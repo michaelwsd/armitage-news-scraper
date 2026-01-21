@@ -92,31 +92,34 @@ def analyze_posts_batch_with_openai(posts):
         posts_text = ""
         for i, post in enumerate(posts):
             posts_text += f"""
-Post #{i}:
-- Date: {post['Date']}
-- Likes: {post['Likes']}
-- Content: {post['Content']}
+                            Post #{i}:
+                            - Date: {post['Date']}
+                            - Likes: {post['Likes']}
+                            - Content: {post['Content']}
 
-"""
+                            """
 
-        user_prompt = f"""Analyze these LinkedIn posts and determine which ones indicate company growth.
+        user_prompt = f"""
+        Analyze these LinkedIn posts and determine which ones indicate company growth.
 
-Growth indicators include:
-- Awards and recognition
-- Business expansion
-- New hires or team growth
-- Partnerships or collaborations
-- Patents or innovations
-- Financial success or funding
-- Product launches or major updates
-- Market expansion
-- Client acquisitions
+        Growth indicators include:
+        - Awards and recognition
+        - Business expansion
+        - New hires or team growth
+        - Partnerships or collaborations
+        - Patents or innovations
+        - Financial success or funding
+        - Product launches or major updates
+        - Market expansion
+        - Client acquisitions
 
-For each post, determine if it indicates growth, provide a brief summary, identify the growth type, and extract the date.
+        For each post, determine if it indicates growth.
+        Provide a brief summary, identify the growth type, and extract the date.
 
-{posts_text}
+        {posts_text}
 
-Analyze all {len(posts)} posts above."""
+        Analyze all {len(posts)} posts above.
+        """
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -238,16 +241,16 @@ def summarize_csv(news_filepath, posts_filepath):
 
             growth_posts.append({
                 "summary": analysis['summary'],
-                "growth_type": analysis['growth_type'],
+                "growth_type": analysis['growth_type'] + " - " + relative_date,
                 "date": absolute_date
             })
             logger.info(f"Growth indicator found: {analysis['growth_type']} - {relative_date} -> {absolute_date}")
 
     logger.info(f"Found {len(growth_posts)} growth indicator posts out of {len(posts)} total posts")
 
-    # Sort posts chronologically (earliest first)
-    growth_posts.sort(key=lambda x: parse_date_for_sorting(x['date']))
-    logger.info("Sorted posts chronologically (earliest first)")
+    # Sort posts chronologically (latest first)
+    growth_posts.sort(key=lambda x: parse_date_for_sorting(x['date']), reverse=True)
+    logger.info("Sorted posts chronologically (latest first)")
 
     # Add to news file
     add_posts_to_news_file(news_filepath, growth_posts)

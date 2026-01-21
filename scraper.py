@@ -79,7 +79,7 @@ if __name__ == "__main__":
     7 iD4me,Melbourne
     """
     companies_list = read_companies_from_csv()
-    company, location = companies_list[6]
+    company, location = companies_list[4]
 
     asyncio.run(scrape(company, location))
 
