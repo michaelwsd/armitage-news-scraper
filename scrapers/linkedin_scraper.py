@@ -27,6 +27,8 @@ async def scrape_news_linkedin(company_info):
 
     await run(company_url, scroll_loops, output_file)
 
+    return output_file
+
 async def run(company_url, scroll_loops, output_file):
     async with async_playwright() as p:
         # 1. Launch Browser (Note the 'await')
@@ -38,8 +40,12 @@ async def run(company_url, scroll_loops, output_file):
         )
 
         # 3. Load Cookies
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        cookies_path = os.path.join(project_root, "cookies.json")
+
         try:
-            with open("cookies.json", "r") as f:
+            with open(cookies_path, "r") as f:
                 cookies = json.load(f)
                 # Fix SameSite issues
                 for cookie in cookies:
@@ -50,7 +56,7 @@ async def run(company_url, scroll_loops, output_file):
                 await context.add_cookies(cookies)
                 logger.info("Cookies loaded successfully")
         except FileNotFoundError:
-            logger.error("cookies.json not found")
+            logger.error(f"cookies.json not found at {cookies_path}")
             return
 
         page = await context.new_page()
@@ -144,7 +150,7 @@ async def run(company_url, scroll_loops, output_file):
                 date_locator = post.locator(".update-components-actor__sub-description").first
                 if await date_locator.count() == 0:
                     date_locator = post.locator("span[aria-hidden='true']").first
-                
+
                 if await date_locator.count() > 0:
                     raw_date_text = await date_locator.inner_text()
                     date = raw_date_text.split("•")[0].strip()
@@ -169,5 +175,13 @@ async def run(company_url, scroll_loops, output_file):
         logger.info("Browser closed. Scraping complete.")
 
 if __name__ == "__main__":
+    company_info = {
+        'hq_location': '201 Kent St, Level 14, Sydney, NSW, 2000, AU', 
+        'linkedin': 'grc-solutions-pty-ltd', 
+        'industry': 'E-learning and online education', 
+        'website': 'grc-solutions.com', 
+        'name': 'GRC Solutions', 
+        'city': 'Sydney'
+        }
     # Standard boilerplate to run async functions
-    asyncio.run(run())
+    asyncio.run(scrape_news_linkedin(company_info))

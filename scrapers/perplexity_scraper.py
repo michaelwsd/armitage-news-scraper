@@ -151,26 +151,25 @@ async def scrape_news_perplexity(company_info, timeframe):
             company_name
         )
 
-        if data:
-            # 1. Get the project root directory (parent of 'scrapers' folder)
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.dirname(script_dir)
-            output_dir = os.path.join(project_root, "data", "output")
+        # 1. Get the project root directory (parent of 'scrapers' folder)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        output_dir = os.path.join(project_root, "data", "output")
 
-            # 2. Create the 'data/output' directory if it doesn't exist
-            os.makedirs(output_dir, exist_ok=True)
+        # 2. Create the 'data/output' directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
 
-            # 3. Construct the filename (e.g., "data/output/LAB Group.json")
-            # Using .get("company") ensures we use the exact name returned by the AI
-            filename = os.path.join(output_dir, f"{data.get('company', company_name)}.json")
+        # 3. Construct the filename (e.g., "data/output/LAB Group.json")
+        # Using .get("company") ensures we use the exact name returned by the AI
+        filename = os.path.join(output_dir, f"{data.get('company', company_name)}.json")
 
-            # 4. Save the result
-            with open(filename, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+        # 4. Save the result
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
 
-            logger.info(f"Result saved to {filename}")
+        logger.info(f"Result saved to {filename}")
 
-        return data
+        return filename
 
     except Exception:
         logger.exception("Failed to pull news for %s", company_name)
