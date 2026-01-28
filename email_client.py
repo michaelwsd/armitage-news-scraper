@@ -285,13 +285,16 @@ def send_digest_report(recipients: list[str], output_dir: str = "data/output") -
             for article in articles[:5]:  # Limit to 5 articles per company in digest
                 headline = article.get("headline", "No headline")
                 date = article.get("date", "")
+                summary = article.get("summary", "")
                 growth_type = article.get("growth_type", "")
                 source_url = article.get("source_url", "")
 
                 html += f"""
                                     <div class="item">
                                         <div class="headline">{headline}</div>
-                                        <div class="meta">{date} {f'<span class="growth-tag">{growth_type}</span>' if growth_type else ''}</div>
+                                        <div class="meta">{date}</div>
+                                        {f'<div style="margin: 4px 0;"><span class="growth-tag">{growth_type}</span></div>' if growth_type else ''}
+                                        {f'<p style="margin: 8px 0; color: #555;">{summary}</p>' if summary else ''}
                                         {f'<a href="{source_url}">Read more</a>' if source_url else ''}
                                     </div>
                         """
@@ -311,8 +314,9 @@ def send_digest_report(recipients: list[str], output_dir: str = "data/output") -
 
                 html += f"""
                                     <div class="item">
-                                        <div class="meta">{date} {f'<span class="growth-tag">{growth_type}</span>' if growth_type else ''}</div>
-                                        <div>{summary}</div>
+                                        <div class="meta">{date}</div>
+                                        {f'<div style="margin: 4px 0;"><span class="growth-tag">{growth_type}</span></div>' if growth_type else ''}
+                                        {f'<p style="margin: 8px 0; color: #555;">{summary}</p>' if summary else ''}
                                     </div>
                         """
             html += "        </div>\n"
