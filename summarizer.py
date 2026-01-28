@@ -201,7 +201,10 @@ def generate_reachout_message(company_name, growth_posts):
     Generate a short professional LinkedIn reachout message based on filtered growth posts.
     Returns the message string, or an empty string on failure.
     """
+    logger.info(f"Generating LinkedIn reachout message for {company_name} based on {len(growth_posts)} growth posts")
+
     if not growth_posts:
+        logger.warning(f"No growth posts available for {company_name}, skipping reachout message")
         return ""
 
     posts_summary = "\n".join(

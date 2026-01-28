@@ -260,23 +260,13 @@ async def scrape_all_companies():
 if __name__ == "__main__":
     # Read companies from CSV file
     """
-    0 Partmax,Melbourne
-    1 GRC Solutions,Sydney
-    2 Smartsoft,Adelaide
-    3 OnQ Software,Melbourne
-    4 LAB Group,Melbourne
-    5 Axcelerate,Brisbane
-    6 Pharmako Biotechnologies,Sydney
-    7 iD4me,Melbourne
-    8 Law In Order, Melbourne
+    0 OnQ Software,Melbourne
+    1 Axcelerate,Brisbane
+    2 Pharmako Biotechnologies,Sydney
     """
     companies_list = read_companies_from_csv()
 
     # To scrape a single company (for testing):
-    company, location = companies_list[3]
+    company, location = companies_list[0]
     asyncio.run(scrape(company, location))
-
-    # To scrape all companies:
-    # asyncio.run(scrape_all_companies())
-
     

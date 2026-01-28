@@ -4,6 +4,7 @@ import json
 import random
 import csv
 import logging
+from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 
 # -------------------------------------------------------------------
@@ -14,6 +15,8 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+load_dotenv()
 
 async def scrape_news_linkedin(company_info):
     """
@@ -97,8 +100,8 @@ async def run(company_url, scroll_loops, output_file):
                     logger.warning("Hit 'Welcome Back' screen. Attempting to click account...")
 
                     # Option 1: Click specifically by your Account Name (Most Reliable for this screenshot)
-                    # We use specific text visible in your image: "Baby Boomer"
-                    account_button = page.locator("text=Baby Boomer")
+                    # We use specific text visible in your image: Linkedin Username
+                    account_button = page.locator(f"text={os.getenv("LINKEDIN_NAME")}")
 
                     if await account_button.count() > 0:
                         await account_button.click()
