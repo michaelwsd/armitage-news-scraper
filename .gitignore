@@ -1,8 +1,7 @@
 .venv
 .env
 cookies.json
-data/output/*
-data/input/*
+data
 __pycache__/
 .github
 data/dump/*
