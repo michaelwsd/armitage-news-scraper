@@ -63,7 +63,7 @@ async def run(company_url, scroll_loops, output_file):
     try:
         async with async_playwright() as p:
             # 1. Launch Browser (Note the 'await')
-            browser = await p.chromium.launch(headless=False)
+            browser = await p.chromium.launch(headless=True)
 
             # 2. Create Context
             context = await browser.new_context(
