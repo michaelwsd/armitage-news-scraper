@@ -1,0 +1,1 @@
+0 0 * * 0 cd /home/shiro1729/projects/armitage-automation && /home/shiro1729/projects/armitage-automation/.venv/bin/python /home/shiro1729/projects/armitage-automation/main.py > /home/shiro1729/projects/armitage-automation/cron.log 2>&1

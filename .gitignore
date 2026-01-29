@@ -6,3 +6,4 @@ __pycache__/
 .github
 data/dump/*
 .claude
+cron.log
