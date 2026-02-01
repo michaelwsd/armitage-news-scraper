@@ -1,11 +1,11 @@
 import os
 import asyncio
-import json
 import random
 import csv
 import logging
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
+from playwright_stealth import Stealth
 
 # -------------------------------------------------------------------
 # Logging configuration
@@ -59,64 +59,68 @@ async def run(company_url, scroll_loops, output_file):
     Returns:
         bool: True on success, False on failure
     """
-    browser = None
-    try:
-        async with async_playwright() as p:
-            # 1. Launch Browser (Note the 'await')
-            browser = await p.chromium.launch(headless=True)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(script_dir)
+    profile_dir = os.path.join(project_root, ".linkedin_profile")
 
-            # 2. Create Context
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    context = None
+    try:
+        async with Stealth().use_async(async_playwright()) as p:
+            # 1. Launch persistent browser context (reuses full browser state)
+            context = await p.chromium.launch_persistent_context(
+                profile_dir,
+                headless=False,
+                args=["--headless=new"],
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 720},
+                locale="en-US",
             )
 
-            # 3. Load Cookies
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.dirname(script_dir)
-            cookies_path = os.path.join(project_root, "cookies.json")
+            # 2. Use existing page or create one
+            page = context.pages[0] if context.pages else await context.new_page()
 
-            try:
-                with open(cookies_path, "r") as f:
-                    cookies = json.load(f)
-                    # Fix SameSite issues
-                    for cookie in cookies:
-                        if "sameSite" in cookie and cookie["sameSite"] not in ["Strict", "Lax", "None"]:
-                            del cookie["sameSite"]
-
-                    # add_cookies is async in the async API
-                    await context.add_cookies(cookies)
-                    logger.info("Cookies loaded successfully")
-            except FileNotFoundError:
-                logger.error(f"cookies.json not found at {cookies_path}")
-                return False
-
-            page = await context.new_page()
-
-            # 4. Navigate
+            # 3. Navigate
             logger.info(f"Navigating to {company_url}")
             try:
                 await page.goto(company_url, timeout=60000)
-                if "login" in page.url:
-                    logger.warning("Hit 'Welcome Back' screen. Attempting to click account...")
-
-                    # Option 1: Click specifically by your Account Name (Most Reliable for this screenshot)
-                    # We use specific text visible in your image: Linkedin Username
-                    account_button = page.locator(f"text={os.getenv("LINKEDIN_NAME")}")
-
-                    if await account_button.count() > 0:
-                        await account_button.click()
-                        logger.info("Clicked account name")
-
-                        # Wait for the feed to load so we know we are past the login screen
-                        await page.wait_for_selector("div.feed-shared-update-v2", timeout=15000)
-                    else:
-                        # Option 2: Fallback to clicking the profile card container if text fails
-                        # This targets the card structure itself
-                        card = page.locator(".profile-card, .login__form_action_container").first
-                        if await card.count() > 0:
-                            await card.click()
             except Exception as e:
                 logger.warning(f"Navigation warning: {e}")
+
+            # 4. Handle login / auth walls
+            if "login" in page.url or "authwall" in page.url or "signup" in page.url:
+                logger.warning(
+                    "Not logged in. Please log in manually in the browser window. "
+                    "Waiting for login to complete..."
+                )
+                # Wait up to 120s for the user to log in and land on a linkedin.com/feed or company page
+                try:
+                    await page.wait_for_url("**/feed/**", timeout=120000)
+                    logger.info("Login detected. Navigating to target page...")
+                    await page.goto(company_url, timeout=60000)
+                except Exception:
+                    logger.error("Login was not completed in time. Closing browser.")
+                    await context.close()
+                    return False
+
+            # 4b. Detect CAPTCHA / security check
+            if "checkpoint/challenge" in page.url or "security-verification" in page.url:
+                logger.warning(
+                    "LinkedIn security verification (CAPTCHA) detected. "
+                    "Please complete the check in the browser window. "
+                    "Waiting up to 5 minutes..."
+                )
+                try:
+                    # Wait for the URL to no longer be a checkpoint/challenge page
+                    await page.wait_for_function(
+                        "() => !window.location.href.includes('checkpoint') && !window.location.href.includes('security-verification')",
+                        timeout=300000,
+                    )
+                    logger.info("Security check passed. Navigating to target page...")
+                    await page.goto(company_url, timeout=60000)
+                except Exception:
+                    logger.error("Security check was not completed in time.")
+                    await context.close()
+                    return False
 
             # 5. Scroll Loop (Async sleep)
             logger.info("Starting scroll loop...")
@@ -205,18 +209,20 @@ async def run(company_url, scroll_loops, output_file):
                 writer.writerows(extracted_data)
 
             logger.info(f"Successfully saved {len(extracted_data)} posts to {output_file}")
-            await browser.close()
+            await context.close()
             logger.info("Browser closed. Scraping complete.")
             return True
 
     except Exception as e:
         logger.exception(f"LinkedIn scraper error: {e}")
-        if browser:
+        if context:
             try:
-                await browser.close()
+                await context.close()
             except Exception:
                 pass
         return False
+    finally:
+        pass
 
 if __name__ == "__main__":
     company_info = {

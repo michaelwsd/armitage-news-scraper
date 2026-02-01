@@ -19,6 +19,7 @@ openai==2.15.0
 perplexityai==0.26.0
 platformdirs==4.5.1
 playwright==1.57.0
+playwright-stealth==2.0.1
 pycparser==3.0
 pydantic==2.12.5
 pydantic_core==2.41.5
