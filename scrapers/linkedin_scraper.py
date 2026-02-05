@@ -186,13 +186,14 @@ async def scrape_news_linkedin(company_info):
         None: On any failure (missing linkedin ID, browser error, etc.)
     """
     company_name = company_info.get('name', 'Unknown')
+    company_city = company_info.get('city', 'Unknown')
     linkedin_id = company_info.get('linkedin')
 
     if not linkedin_id:
         logger.warning(f"No LinkedIn ID available for {company_name}, skipping LinkedIn scrape")
         return None
 
-    search_query = f"{company_name} linkedin"
+    search_query = f"{company_name} {company_city} Linkedin"
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
     output_dir = os.path.join(project_root, "data", "output")
