@@ -35,9 +35,6 @@ def run(recipients: list[str] = None, send_digest: bool = True):
     else:
         logger.warning("No recipients configured, pass recipients to run().")
 
-    # 5. clean up docs
-    # cleanup()
-
 
 def cleanup(input_dir: str = "data/input", output_dir: str = "data/output"):
     """Delete all files from data/input and data/output directories."""
@@ -53,4 +50,10 @@ def cleanup(input_dir: str = "data/input", output_dir: str = "data/output"):
 
 
 if __name__ == "__main__":
-    run(["mwan0165@student.monash.edu"])
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--scheduled":
+        from scheduler import generate_and_install
+        generate_and_install()
+    else:
+        run(["mwan0165@student.monash.edu"])

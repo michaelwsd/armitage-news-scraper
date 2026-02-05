@@ -3,6 +3,7 @@ import csv
 import json
 import logging
 import os
+import random
 from company.get_company_info import get_info
 from scrapers.linkedin_scraper import scrape_news_linkedin
 from summarizer import summarize_csv
@@ -201,6 +202,55 @@ def read_companies_from_csv(csv_path="data/input/companies.csv"):
     except Exception as e:
         logger.error(f"Error reading CSV file: {e}")
         raise
+
+async def scrape_companies(companies_list, inter_delay=True):
+    """
+    Scrape a specific subset of companies with random 5-15 min delays between them.
+
+    Args:
+        companies_list: List of (company_name, location) tuples to scrape
+        inter_delay: Whether to add random delays between companies
+
+    Returns:
+        list: Results for each company
+    """
+    all_results = []
+
+    for idx, (company, location) in enumerate(companies_list):
+        logger.info(f"{'=' * 50}")
+        logger.info(f"Processing company {idx + 1}/{len(companies_list)}: {company}")
+        logger.info(f"{'=' * 50}")
+
+        try:
+            result = await scrape(company, location)
+            all_results.append(result)
+        except Exception as e:
+            logger.exception(f"Critical error processing {company}: {e}")
+            all_results.append({
+                'company': company,
+                'location': location,
+                'company_info': False,
+                'news_scrape': False,
+                'linkedin_scrape': False,
+                'summarization': False,
+                'errors': [f"Critical error: {e}"]
+            })
+
+        # Inter-company delay (skip after last company)
+        if inter_delay and idx < len(companies_list) - 1:
+            delay = random.randint(300, 900)
+            logger.info(f"Waiting {delay // 60}m {delay % 60}s before next company...")
+            await asyncio.sleep(delay)
+
+    # Log summary
+    logger.info("=" * 50)
+    logger.info("SESSION SUMMARY")
+    logger.info("=" * 50)
+    successful = sum(1 for r in all_results if r['news_scrape'] or r['linkedin_scrape'])
+    logger.info(f"Companies processed: {len(all_results)}, Successful: {successful}")
+
+    return all_results
+
 
 async def scrape_all_companies():
     """

@@ -1,27 +1,25 @@
 import subprocess
-from pathlib import Path
+from scheduler import install_meta_cron, generate_and_install
 
 
-def generate_cron_job():
-    """Generate and install a cron job that runs main.py every Sunday at noon."""
-    project_dir = Path(__file__).resolve().parent
-    python_path = project_dir / ".venv" / "bin" / "python"
-    main_path = project_dir / "main.py"
-    log_path = project_dir / "cron.log"
-
-    cron_line = f"0 12 * * 0 cd {project_dir} && {python_path} {main_path} >> {log_path} 2>&1"
-
+def _remove_old_cron():
+    """Remove the legacy Sunday-noon cron entry (untagged, from before the scheduler)."""
     result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
-    existing = result.stdout if result.returncode == 0 else ""
-
-    if cron_line in existing:
-        print("Cron job already installed.")
+    if result.returncode != 0:
         return
-
-    new_crontab = existing.rstrip("\n") + "\n" + cron_line + "\n" if existing.strip() else cron_line + "\n"
+    existing = result.stdout
+    lines = [l for l in existing.splitlines()
+             if not (l.strip() and "main.py" in l and "ARMITAGE" not in l)]
+    new_crontab = "\n".join(lines).strip() + "\n" if lines else ""
     subprocess.run(["crontab", "-"], input=new_crontab, text=True, check=True)
-    print("Cron job installed successfully.")
+
+
+def setup():
+    """Install the weekly scheduler meta-cron, replacing the old single cron."""
+    _remove_old_cron()
+    install_meta_cron()
+    generate_and_install()
 
 
 if __name__ == "__main__":
-    generate_cron_job()
+    setup()
