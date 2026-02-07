@@ -35,6 +35,9 @@ def run(recipients: list[str] = None, send_digest: bool = True):
     else:
         logger.warning("No recipients configured, pass recipients to run().")
 
+    # clean up files
+    # cleanup()
+
 
 def cleanup(input_dir: str = "data/input", output_dir: str = "data/output"):
     """Delete all files from data/input and data/output directories."""
