@@ -1,6 +1,8 @@
 import csv
+import json
 import logging
 import os
+import urllib.parse
 import requests
 from dotenv import load_dotenv
 
@@ -61,6 +63,57 @@ def extract_companies(token, dashboard_id):
     return companies
 
 
+def get_owner_emails(token, company_names):
+    """Batch SOQL query to get the opportunity owner email for each company."""
+    company_to_owner = {name: None for name in company_names}
+
+    escaped_names = [name.replace("'", "\\'") for name in company_names]
+    names_clause = ",".join(f"'{n}'" for n in escaped_names)
+    soql = f"SELECT Name, Owner.Email FROM Opportunity WHERE Name IN ({names_clause})"
+    endpoint = f"query/?q={urllib.parse.quote(soql)}"
+
+    try:
+        result = sf_get(endpoint, token)
+        for record in result.get("records", []):
+            name = record.get("Name")
+            owner = record.get("Owner", {})
+            email = owner.get("Email") if isinstance(owner, dict) else None
+            if name in company_to_owner and company_to_owner[name] is None:
+                company_to_owner[name] = email
+    except Exception as e:
+        logger.error(f"Batch owner query failed: {e}")
+
+    unmapped = [n for n, e in company_to_owner.items() if e is None]
+    if unmapped:
+        logger.warning(f"Could not resolve owner for: {unmapped}")
+
+    return company_to_owner
+
+
+def write_owner_mapping(company_to_owner):
+    """Write owner_email -> [company_names] mapping to JSON."""
+    owner_to_companies = {}
+    unmapped = []
+
+    for company, email in company_to_owner.items():
+        if email:
+            owner_to_companies.setdefault(email, []).append(company)
+        else:
+            unmapped.append(company)
+
+    mapping = {
+        "owner_to_companies": owner_to_companies,
+        "unmapped_companies": unmapped,
+    }
+
+    mapping_path = os.path.join(os.path.dirname(__file__), "data", "input", "owner_mapping.json")
+    os.makedirs(os.path.dirname(mapping_path), exist_ok=True)
+    with open(mapping_path, "w") as f:
+        json.dump(mapping, f, indent=2)
+
+    logger.info(f"Wrote owner mapping: {len(owner_to_companies)} owners, {len(unmapped)} unmapped")
+
+
 def write_companies_csv(companies):
     csv_path = os.path.join(os.path.dirname(__file__), "data", "input", "companies.csv")
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
@@ -86,7 +139,12 @@ def import_companies_from_salesforce():
         companies.extend(extracted)
 
     logger.info(f"Total companies extracted: {len(companies)}")
-    write_companies_csv([companies[0]])
+    write_companies_csv(companies)
+
+    company_names = list(set(c[0] for c in companies))
+    company_to_owner = get_owner_emails(token, company_names)
+    write_owner_mapping(company_to_owner)
+
     logger.info("Import complete")
 
 

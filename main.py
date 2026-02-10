@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from scraper import scrape_all_companies
 from salesforce import import_companies_from_salesforce
-from utils.email_client import send_all_reports, send_digest_report
+from utils.email_client import send_all_reports, send_owner_digests
 
 logging.basicConfig(
     level=logging.INFO,  
@@ -28,12 +28,11 @@ def run(recipients: list[str] = None, send_digest: bool = True):
 
     # 3. push result json to salesforce dashboard
 
-    # 4. send emails
-    if recipients:
-        if send_digest:
-            send_digest_report(recipients)
-        else:
-            send_all_reports(recipients)
+    # 4. send emails — per-owner digests with fallback to recipients
+    if send_digest:
+        send_owner_digests(fallback_recipients=recipients)
+    elif recipients:
+        send_all_reports(recipients)
     else:
         logger.warning("No recipients configured, pass recipients to run().")
 
@@ -55,10 +54,4 @@ def cleanup(input_dir: str = "data/input", output_dir: str = "data/output"):
 
 
 if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) > 1 and sys.argv[1] == "--scheduled":
-        from schedule.scheduler import generate_and_install
-        generate_and_install()
-    else:
-        run(["mwan0165@student.monash.edu"])
+    run(["mwan0165@student.monash.edu"])

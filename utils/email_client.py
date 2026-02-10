@@ -260,17 +260,8 @@ def send_all_reports(recipients: list[str], output_dir: str = "data/output") -> 
     return results
 
 
-def send_digest_report(recipients: list[str], output_dir: str = "data/output") -> bool:
-    """
-    Load all JSON files and send a single digest email with all companies.
-    """
-    client = EmailClient()
-    companies = load_json_files(output_dir)
-
-    if not companies:
-        logger.warning("No company data to send")
-        return False
-
+def _build_digest_html(companies: list[dict]) -> str:
+    """Build the HTML content for a digest email containing the given companies."""
     html = """
             <!DOCTYPE html>
             <html>
@@ -323,7 +314,7 @@ def send_digest_report(recipients: list[str], output_dir: str = "data/output") -
                                 <h3 class="subsection-title">News & Articles</h3>
                     """
         if articles:
-            for article in articles[:5]:  # Limit to 5 articles per company in digest
+            for article in articles[:5]:
                 headline = article.get("headline", "No headline")
                 date = article.get("date", "")
                 summary = article.get("summary", "")
@@ -350,7 +341,7 @@ def send_digest_report(recipients: list[str], output_dir: str = "data/output") -
                                 <h3 class="subsection-title">{linkedin_title}</h3>
                     """
         if posts:
-            for post in posts[:3]:  # Limit to 3 posts per company in digest
+            for post in posts[:3]:
                 summary = post.get("summary", "")
                 date = post.get("date", "")
                 growth_type = post.get("growth_type", "")
@@ -406,9 +397,104 @@ def send_digest_report(recipients: list[str], output_dir: str = "data/output") -
             </body>
             </html>
             """
+    return html
 
+
+def send_digest_report(recipients: list[str], output_dir: str = "data/output") -> bool:
+    """
+    Load all JSON files and send a single digest email with all companies.
+    """
+    client = EmailClient()
+    companies = load_json_files(output_dir)
+
+    if not companies:
+        logger.warning("No company data to send")
+        return False
+
+    html = _build_digest_html(companies)
     subject = f"Growth Intelligence Digest - {len(companies)} Companies"
     return client.send_email(recipients, subject, html)
+
+
+def load_owner_mapping(input_dir: str = "data/input") -> dict | None:
+    """Load the owner_email -> company_names mapping from JSON."""
+    script_dir = Path(__file__).parent.parent
+    mapping_path = script_dir / input_dir / "owner_mapping.json"
+
+    if not mapping_path.exists():
+        logger.warning(f"Owner mapping not found at {mapping_path}")
+        return None
+
+    try:
+        with open(mapping_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to load owner mapping: {e}")
+        return None
+
+
+def send_owner_digests(
+    fallback_recipients: list[str] = None,
+    output_dir: str = "data/output",
+    input_dir: str = "data/input",
+) -> dict:
+    """
+    Send per-owner digest emails. Each owner receives a digest containing
+    only their companies' data.
+
+    Companies without a mapped owner are included in a fallback digest
+    sent to fallback_recipients (if provided).
+    """
+    mapping = load_owner_mapping(input_dir)
+
+    if mapping is None:
+        logger.warning("No owner mapping found. Falling back to standard digest.")
+        if fallback_recipients:
+            success = send_digest_report(fallback_recipients, output_dir)
+            return {"owners_sent": 0, "owners_failed": 0, "fallback_sent": success}
+        return {"owners_sent": 0, "owners_failed": 0, "fallback_sent": False}
+
+    all_companies = load_json_files(output_dir)
+    company_lookup = {cd.get("company"): cd for cd in all_companies}
+
+    results = {"owners_sent": 0, "owners_failed": 0, "fallback_sent": False}
+    client = EmailClient()
+
+    owner_to_companies = mapping.get("owner_to_companies", {})
+    unmapped_names = mapping.get("unmapped_companies", [])
+
+    for owner_email, company_names in owner_to_companies.items():
+        owner_companies = [company_lookup[name] for name in company_names if name in company_lookup]
+
+        if not owner_companies:
+            logger.warning(f"No scraped data for {owner_email}'s companies: {company_names}")
+            continue
+
+        html = _build_digest_html(owner_companies)
+        subject = f"Growth Intelligence Digest - {len(owner_companies)} Companies"
+
+        success = client.send_email([owner_email], subject, html)
+        if success:
+            results["owners_sent"] += 1
+            logger.info(f"Sent digest to {owner_email}: {[c.get('company') for c in owner_companies]}")
+        else:
+            results["owners_failed"] += 1
+
+    if unmapped_names and fallback_recipients:
+        unmapped_data = [company_lookup[name] for name in unmapped_names if name in company_lookup]
+        if unmapped_data:
+            html = _build_digest_html(unmapped_data)
+            subject = f"Growth Intelligence Digest (Unassigned) - {len(unmapped_data)} Companies"
+            results["fallback_sent"] = client.send_email(fallback_recipients, subject, html)
+    elif unmapped_names:
+        logger.warning(f"Unmapped companies with no fallback recipients: {unmapped_names}")
+
+    logger.info(
+        f"Owner digests: {results['owners_sent']} sent, "
+        f"{results['owners_failed']} failed, "
+        f"fallback={'sent' if results['fallback_sent'] else 'not sent'}"
+    )
+    return results
 
 
 def send_alert_email(recipients: list[str], subject: str, message: str) -> bool:
