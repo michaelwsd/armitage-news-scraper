@@ -379,7 +379,7 @@ async def scrape_companies(companies_list, inter_delay=True):
 
         # Inter-company delay (skip after last company)
         if inter_delay and idx < len(companies_list) - 1:
-            delay = random.randint(300, 900)
+            delay = 120
             logger.info(f"Waiting {delay // 60}m {delay % 60}s before next company...")
             await asyncio.sleep(delay)
 
@@ -429,7 +429,7 @@ async def scrape_all_companies():
 
         # Inter-company delay to avoid API rate limits (skip after last company)
         if idx < len(companies_list) - 1:
-            delay = 300 # delay by 5 minutes between each scrape
+            delay = 120 # delay by 2 minutes between each scrape
             logger.info(f"Waiting {delay}s before next company to avoid rate limits...")
             await asyncio.sleep(delay)
 
