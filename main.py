@@ -19,6 +19,7 @@ def run(
     scrape_only: bool = False,
     deliver_only: bool = False,
     batch: str = None,
+    limit: int = None,
 ):
     """
     Run the full scraping and email pipeline.
@@ -30,6 +31,7 @@ def run(
         scrape_only: If True, import + scrape only — skip push, email, cleanup.
         deliver_only: If True, push + email + cleanup only — skip import + scrape.
         batch: Batch spec like "1/4" meaning "batch 1 of 4".
+        limit: If provided, only process the first N companies from the list.
     """
     # ── Scrape phase ──
     if not deliver_only:
@@ -45,11 +47,12 @@ def run(
             asyncio.run(scrape_companies(match, inter_delay=False))
         elif batch:
             batch_num, total_batches = _parse_batch(batch)
-            # If scrape-only, input files already exist (from a prior import or CI artifact)
-            # Otherwise, import fresh from Salesforce
             if not scrape_only:
                 import_companies_from_salesforce()
             companies = read_companies_from_csv()
+            if limit:
+                companies = companies[:limit]
+                logger.info(f"Limited to first {limit} companies")
             chunk = _get_batch_slice(companies, batch_num, total_batches)
             logger.info(f"Batch {batch_num}/{total_batches}: processing {len(chunk)} of {len(companies)} companies")
             for name, loc in chunk:
@@ -57,7 +60,11 @@ def run(
             asyncio.run(scrape_companies(chunk))
         else:
             import_companies_from_salesforce()
-            asyncio.run(scrape_all_companies())
+            companies = read_companies_from_csv()
+            if limit:
+                companies = companies[:limit]
+                logger.info(f"Limited to first {limit} companies")
+            asyncio.run(scrape_companies(companies))
 
     if scrape_only:
         logger.info("Scrape-only mode: skipping push, email, and cleanup")
@@ -138,6 +145,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Skip sending emails (useful for testing)",
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        help="Only process the first N companies (useful for testing)",
+    )
     args = parser.parse_args()
 
     if args.scrape_only and args.deliver_only:
@@ -150,6 +162,7 @@ if __name__ == "__main__":
             scrape_only=args.scrape_only,
             deliver_only=args.deliver_only,
             batch=args.batch,
+            limit=args.limit,
         )
     else:
         run(
@@ -158,4 +171,5 @@ if __name__ == "__main__":
             scrape_only=args.scrape_only,
             deliver_only=args.deliver_only,
             batch=args.batch,
+            limit=args.limit,
         )

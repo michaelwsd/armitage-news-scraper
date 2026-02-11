@@ -4,7 +4,6 @@ cookies.json
 .linkedin_profile/
 data
 __pycache__/
-.github
 data/dump/*
 .claude
 cron.log

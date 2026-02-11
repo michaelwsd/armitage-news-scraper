@@ -1,0 +1,277 @@
+name: Run Main Script
+
+on:
+  push:
+
+  # Run at 00:00 UTC on the 25th of every month
+  # schedule:
+  #   - cron: '0 0 25 * *'
+
+  # Allow manual trigger
+  workflow_dispatch:
+
+env:
+  BATCH_SIZE: 5
+  # Limit total companies processed (set to 0 for no limit)
+  COMPANY_LIMIT: 10
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+  FIRMABLE_API_KEY: ${{ secrets.FIRMABLE_API_KEY }}
+  SERP_API_KEY: ${{ secrets.SERP_API_KEY }}
+  BRIGHTDATA_API_KEY: ${{ secrets.BRIGHTDATA_API_KEY }}
+  SALESFORCE_DOMAIN: ${{ secrets.SALESFORCE_DOMAIN }}
+  SALESFORCE_USERNAME: ${{ secrets.SALESFORCE_USERNAME }}
+  SALESFORCE_PASSWORD: ${{ secrets.SALESFORCE_PASSWORD }}
+  SALESFORCE_SECURITY_TOKEN: ${{ secrets.SALESFORCE_SECURITY_TOKEN }}
+  CONSUMER_KEY: ${{ secrets.CONSUMER_KEY }}
+  CONSUMER_SECRET: ${{ secrets.CONSUMER_SECRET }}
+  ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+  SMTP_USER: ${{ secrets.SMTP_USER }}
+  SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+  SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+  EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
+
+jobs:
+  # ── Import from Salesforce + calculate batch plan ──────────────────────────
+  import:
+    runs-on: ubuntu-latest
+    outputs:
+      total_batches: ${{ steps.plan.outputs.total_batches }}
+      job1_batches: ${{ steps.plan.outputs.job1_batches }}
+      job2_batches: ${{ steps.plan.outputs.job2_batches }}
+      job3_batches: ${{ steps.plan.outputs.job3_batches }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - run: pip install -r requirements.txt
+    - run: mkdir -p data/input data/output
+
+    - name: Import companies from Salesforce
+      run: python salesforce.py
+
+    - name: Calculate batch plan
+      id: plan
+      run: |
+        # Count companies from CSV (subtract 1 for header)
+        COMPANY_COUNT=$(( $(wc -l < data/input/companies.csv) - 1 ))
+        echo "Company count: $COMPANY_COUNT"
+
+        # Apply limit if set
+        if [ "$COMPANY_LIMIT" -gt 0 ] && [ "$COMPANY_COUNT" -gt "$COMPANY_LIMIT" ]; then
+          echo "Limiting to $COMPANY_LIMIT companies (from $COMPANY_COUNT)"
+          COMPANY_COUNT=$COMPANY_LIMIT
+        fi
+
+        # Calculate total batches needed (ceiling division by BATCH_SIZE)
+        TOTAL=$(( (COMPANY_COUNT + BATCH_SIZE - 1) / BATCH_SIZE ))
+        # Minimum 1 batch
+        if [ "$TOTAL" -lt 1 ]; then TOTAL=1; fi
+        echo "Total batches: $TOTAL"
+
+        # Split batches across 3 sequential jobs (ceiling division)
+        PER_JOB=$(( (TOTAL + 2) / 3 ))
+
+        JOB1_START=1
+        JOB1_END=$PER_JOB
+        if [ "$JOB1_END" -gt "$TOTAL" ]; then JOB1_END=$TOTAL; fi
+
+        JOB2_START=$(( JOB1_END + 1 ))
+        JOB2_END=$(( JOB1_END + PER_JOB ))
+        if [ "$JOB2_END" -gt "$TOTAL" ]; then JOB2_END=$TOTAL; fi
+
+        JOB3_START=$(( JOB2_END + 1 ))
+        JOB3_END=$TOTAL
+
+        # Build batch range strings (e.g. "1 2 3 4")
+        JOB1_BATCHES=""
+        for i in $(seq $JOB1_START $JOB1_END); do JOB1_BATCHES="$JOB1_BATCHES $i"; done
+
+        JOB2_BATCHES=""
+        if [ "$JOB2_START" -le "$TOTAL" ]; then
+          for i in $(seq $JOB2_START $JOB2_END); do JOB2_BATCHES="$JOB2_BATCHES $i"; done
+        fi
+
+        JOB3_BATCHES=""
+        if [ "$JOB3_START" -le "$TOTAL" ]; then
+          for i in $(seq $JOB3_START $JOB3_END); do JOB3_BATCHES="$JOB3_BATCHES $i"; done
+        fi
+
+        echo "Job 1 batches:$JOB1_BATCHES"
+        echo "Job 2 batches:$JOB2_BATCHES"
+        echo "Job 3 batches:$JOB3_BATCHES"
+
+        echo "total_batches=$TOTAL" >> $GITHUB_OUTPUT
+        echo "job1_batches=$JOB1_BATCHES" >> $GITHUB_OUTPUT
+        echo "job2_batches=$JOB2_BATCHES" >> $GITHUB_OUTPUT
+        echo "job3_batches=$JOB3_BATCHES" >> $GITHUB_OUTPUT
+
+    - name: Upload input data
+      uses: actions/upload-artifact@v4
+      with:
+        name: input-data
+        path: data/input/
+        retention-days: 1
+
+  # ── Scrape job 1 ───────────────────────────────────────────────────────────
+  scrape-1:
+    needs: import
+    if: needs.import.outputs.job1_batches != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - run: pip install -r requirements.txt
+    - run: mkdir -p data/input data/output
+
+    - name: Download input data
+      uses: actions/download-artifact@v4
+      with:
+        name: input-data
+        path: data/input/
+
+    - name: Scrape batches
+      run: |
+        TOTAL=${{ needs.import.outputs.total_batches }}
+        for BATCH in ${{ needs.import.outputs.job1_batches }}; do
+          echo "=== Scraping batch $BATCH/$TOTAL ==="
+          LIMIT_FLAG=""
+          if [ "$COMPANY_LIMIT" -gt 0 ]; then LIMIT_FLAG="--limit $COMPANY_LIMIT"; fi
+          python main.py --scrape-only --batch "$BATCH/$TOTAL" $LIMIT_FLAG
+        done
+
+    - name: Upload output
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: output-part-1
+        path: data/output/
+        retention-days: 1
+
+  # ── Scrape job 2 ───────────────────────────────────────────────────────────
+  scrape-2:
+    needs: [import, scrape-1]
+    if: always() && needs.import.outputs.job2_batches != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - run: pip install -r requirements.txt
+    - run: mkdir -p data/input data/output
+
+    - name: Download input data
+      uses: actions/download-artifact@v4
+      with:
+        name: input-data
+        path: data/input/
+
+    - name: Scrape batches
+      run: |
+        TOTAL=${{ needs.import.outputs.total_batches }}
+        for BATCH in ${{ needs.import.outputs.job2_batches }}; do
+          echo "=== Scraping batch $BATCH/$TOTAL ==="
+          LIMIT_FLAG=""
+          if [ "$COMPANY_LIMIT" -gt 0 ]; then LIMIT_FLAG="--limit $COMPANY_LIMIT"; fi
+          python main.py --scrape-only --batch "$BATCH/$TOTAL" $LIMIT_FLAG
+        done
+
+    - name: Upload output
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: output-part-2
+        path: data/output/
+        retention-days: 1
+
+  # ── Scrape job 3 ───────────────────────────────────────────────────────────
+  scrape-3:
+    needs: [import, scrape-2]
+    if: always() && needs.import.outputs.job3_batches != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - run: pip install -r requirements.txt
+    - run: mkdir -p data/input data/output
+
+    - name: Download input data
+      uses: actions/download-artifact@v4
+      with:
+        name: input-data
+        path: data/input/
+
+    - name: Scrape batches
+      run: |
+        TOTAL=${{ needs.import.outputs.total_batches }}
+        for BATCH in ${{ needs.import.outputs.job3_batches }}; do
+          echo "=== Scraping batch $BATCH/$TOTAL ==="
+          LIMIT_FLAG=""
+          if [ "$COMPANY_LIMIT" -gt 0 ]; then LIMIT_FLAG="--limit $COMPANY_LIMIT"; fi
+          python main.py --scrape-only --batch "$BATCH/$TOTAL" $LIMIT_FLAG
+        done
+
+    - name: Upload output
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: output-part-3
+        path: data/output/
+        retention-days: 1
+
+  # ── Deliver: push to Salesforce + send emails ──────────────────────────────
+  deliver:
+    needs: [import, scrape-1, scrape-2, scrape-3]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - run: pip install -r requirements.txt
+    - run: mkdir -p data/input data/output
+
+    - name: Download input data
+      uses: actions/download-artifact@v4
+      with:
+        name: input-data
+        path: data/input/
+
+    - name: Download all scrape outputs
+      uses: actions/download-artifact@v4
+      continue-on-error: true
+      with:
+        pattern: output-part-*
+        path: data/output/
+        merge-multiple: true
+
+    - name: Check for output files
+      run: |
+        COUNT=$(find data/output -name '*.json' 2>/dev/null | wc -l)
+        echo "Found $COUNT output JSON files"
+        if [ "$COUNT" -eq 0 ]; then
+          echo "::warning::No scrape output files found — skipping delivery"
+          echo "SKIP_DELIVER=true" >> $GITHUB_ENV
+        fi
+
+    - name: Deliver (push + email)
+      if: env.SKIP_DELIVER != 'true'
+      run: python main.py --deliver-only
+
+    - name: Upload final results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: results-${{ github.run_number }}
+        path: data/output/*.json
+        retention-days: 30
