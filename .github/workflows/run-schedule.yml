@@ -17,7 +17,9 @@ concurrency:
 env:
   BATCH_SIZE: 5
   # Limit total companies processed (set to 0 for no limit)
-  COMPANY_LIMIT: 1
+  COMPANY_LIMIT: 0
+  # Set to a company name to test a single company (leave empty for full run)
+  TEST_COMPANY: "Axcelerate"
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
   FIRMABLE_API_KEY: ${{ secrets.FIRMABLE_API_KEY }}
@@ -36,8 +38,33 @@ env:
   EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
 
 jobs:
+  # ── Single-company test (only when TEST_COMPANY is set) ──────────────────
+  test-single:
+    if: true  # Set to false to skip single-company test and run full pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - run: pip install -r requirements.txt
+    - run: mkdir -p data/input data/output
+
+    - name: Scrape single company
+      run: python main.py --company "$TEST_COMPANY"
+
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: results-${{ github.run_number }}
+        path: data/output/*.json
+        retention-days: 30
+
   # ── Import from Salesforce + calculate batch plan ──────────────────────────
   import:
+    if: false  # Set to true to run full pipeline (disable test-single first)
     runs-on: ubuntu-latest
     outputs:
       total_batches: ${{ steps.plan.outputs.total_batches }}
