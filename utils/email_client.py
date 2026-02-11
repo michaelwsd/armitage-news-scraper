@@ -119,6 +119,35 @@ class EmailClient:
             html += '            <p style="color: #999; font-style: italic;">No LinkedIn activity found.</p>\n'
         html += "    </div>\n"
 
+        contact_name = company_data.get("contact_name")
+        contact_posts = company_data.get("contact_posts", [])
+        contact_title = f"Contact Activity: {contact_name}" if contact_name else "Contact LinkedIn Activity"
+        html += f"""
+                        <div class="section">
+                            <h2 class="section-title">{contact_title}</h2>
+                    """
+        if contact_posts:
+            for post in contact_posts:
+                summary = post.get("summary", "")
+                date = post.get("date", "Unknown date")
+                topic = post.get("topic", "")
+
+                html += f"""
+                                <div class="post" style="border-left-color: #e67e22;">
+                                    <div class="meta">
+                                        <span>{date}</span>
+                                        {f'<span class="growth-tag" style="background: #e67e22;">{topic}</span>' if topic else ''}
+                                    </div>
+                                    <div class="summary">{summary}</div>
+                                </div>
+                        """
+        else:
+            if contact_name:
+                html += f'            <p style="color: #999; font-style: italic;">No recent LinkedIn activity found for {contact_name}.</p>\n'
+            else:
+                html += '            <p style="color: #999; font-style: italic;">No primary contact identified.</p>\n'
+        html += "    </div>\n"
+
         potential_actions = company_data.get("potential_actions", [])
         html += """
                         <div class="section">
@@ -214,7 +243,7 @@ def load_json_files(output_dir: str = "data/output") -> list[dict]:
     data = []
     for json_file in json_files:
         # Skip LinkedIn Posts files (they are intermediate files, not company reports)
-        if "Linkedin Posts" in json_file.name:
+        if "Linkedin Posts" in json_file.name or "Contact Posts" in json_file.name:
             logger.debug(f"Skipping intermediate file: {json_file.name}")
             continue
         try:
@@ -355,6 +384,33 @@ def _build_digest_html(companies: list[dict]) -> str:
                         """
         else:
             html += '                <p style="color: #999; font-style: italic;">No LinkedIn activity found.</p>\n'
+        html += "        </div>\n"
+
+        contact_name = company_data.get("contact_name")
+        contact_posts = company_data.get("contact_posts", [])
+        contact_title = f"Contact Activity: {contact_name}" if contact_name else "Contact LinkedIn Activity"
+        html += f"""
+                            <div class="subsection">
+                                <h3 class="subsection-title">{contact_title}</h3>
+                    """
+        if contact_posts:
+            for post in contact_posts[:3]:
+                summary = post.get("summary", "")
+                date = post.get("date", "")
+                topic = post.get("topic", "")
+
+                html += f"""
+                                    <div class="item" style="border-left-color: #e67e22;">
+                                        <div class="meta">{date}</div>
+                                        {f'<div style="margin: 4px 0;"><span class="growth-tag" style="background: #e67e22;">{topic}</span></div>' if topic else ''}
+                                        {f'<p style="margin: 8px 0; color: #555;">{summary}</p>' if summary else ''}
+                                    </div>
+                        """
+        else:
+            if contact_name:
+                html += f'                <p style="color: #999; font-style: italic;">No recent activity found for {contact_name}.</p>\n'
+            else:
+                html += '                <p style="color: #999; font-style: italic;">No primary contact identified.</p>\n'
         html += "        </div>\n"
 
         potential_actions = company_data.get("potential_actions", [])

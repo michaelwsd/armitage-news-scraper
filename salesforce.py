@@ -115,6 +115,48 @@ def write_owner_mapping(company_to_owner):
     logger.info(f"Wrote owner mapping: {len(owner_to_companies)} owners, {len(unmapped)} unmapped")
 
 
+def get_primary_contacts(token, company_names):
+    """Batch SOQL query to get the primary contact name for each company."""
+    company_to_contact = {name: None for name in company_names}
+
+    escaped_names = [name.replace("'", "\\'") for name in company_names]
+    names_clause = ",".join(f"'{n}'" for n in escaped_names)
+    soql = (
+        "SELECT Opportunity.Name, Contact.Name "
+        "FROM OpportunityContactRole "
+        f"WHERE Opportunity.Name IN ({names_clause}) "
+        "AND IsPrimary = true"
+    )
+    endpoint = f"query/?q={urllib.parse.quote(soql)}"
+
+    try:
+        result = sf_get(endpoint, token)
+        for record in result.get("records", []):
+            opp_name = record.get("Opportunity", {}).get("Name")
+            contact_name = record.get("Contact", {}).get("Name")
+            if opp_name in company_to_contact and company_to_contact[opp_name] is None:
+                company_to_contact[opp_name] = contact_name
+    except Exception as e:
+        logger.error(f"Batch contact query failed: {e}")
+
+    unmapped = [n for n, c in company_to_contact.items() if c is None]
+    if unmapped:
+        logger.warning(f"Could not resolve primary contact for: {unmapped}")
+
+    return company_to_contact
+
+
+def write_contact_mapping(company_to_contact):
+    """Write company_name -> contact_name mapping to JSON."""
+    mapping_path = os.path.join(os.path.dirname(__file__), "data", "input", "contact_mapping.json")
+    os.makedirs(os.path.dirname(mapping_path), exist_ok=True)
+    with open(mapping_path, "w") as f:
+        json.dump(company_to_contact, f, indent=2)
+
+    mapped = sum(1 for v in company_to_contact.values() if v is not None)
+    logger.info(f"Wrote contact mapping: {mapped} mapped, {len(company_to_contact) - mapped} unmapped")
+
+
 def write_companies_csv(companies):
     csv_path = os.path.join(os.path.dirname(__file__), "data", "input", "companies.csv")
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
@@ -199,6 +241,37 @@ def _format_news_html(data):
     return html
 
 
+def _format_contact_activity_html(data):
+    """Format contact LinkedIn activity as HTML for a separate Salesforce field."""
+    try:
+        contact_name = data.get("contact_name")
+        contact_posts = data.get("contact_posts") or []
+
+        html = _last_updated_banner()
+        contact_title = f"Contact Activity: {contact_name}" if contact_name else "Contact LinkedIn Activity"
+        html += _section_header(contact_title)
+
+        if contact_posts:
+            for post in contact_posts:
+                html += (
+                    f'<div style="margin-bottom:12px; padding:8px; background:#f9f9f9; border-left:3px solid #e67e22;">'
+                    f'<span style="color:#666; font-size:12px;">{post.get("date", "")}</span>'
+                    f'<span style="color:#666; font-size:12px;"> &bull; {post.get("topic", "")}</span><br/>'
+                    f'<span>{post.get("summary", "")}</span>'
+                    f'</div>'
+                )
+        else:
+            if contact_name:
+                html += f'<div style="padding:8px; color:#888;"><i>No recent LinkedIn activity found for {contact_name}.</i></div>'
+            else:
+                html += '<div style="padding:8px; color:#888;"><i>No primary contact identified for this opportunity.</i></div>'
+
+        return html
+    except Exception as e:
+        logger.error(f"Error formatting contact activity HTML: {e}")
+        return '<div style="padding:8px; color:#888;"><i>Contact activity unavailable.</i></div>'
+
+
 def _format_actions_html(data):
     """Format potential actions and outreach message as HTML."""
     html = _section_header("Potential Actions")
@@ -239,10 +312,13 @@ def push_to_salesforce(output_dir=None):
 
     company_data = {}
     for filename in json_files:
-        with open(os.path.join(output_dir, filename)) as f:
-            data = json.load(f)
-        if isinstance(data, dict) and "company" in data:
-            company_data[data["company"]] = data
+        try:
+            with open(os.path.join(output_dir, filename)) as f:
+                data = json.load(f)
+            if isinstance(data, dict) and "company" in data:
+                company_data[data["company"]] = data
+        except Exception as e:
+            logger.error(f"Failed to load {filename}, skipping: {e}")
 
     logger.info(f"Loaded {len(company_data)} company reports")
 
@@ -253,23 +329,28 @@ def push_to_salesforce(output_dir=None):
     updated = 0
     failed = 0
     for company_name, data in company_data.items():
-        opp_id = name_to_id.get(company_name)
-        if not opp_id:
-            logger.warning(f"No Opportunity found for: {company_name}")
-            failed += 1
-            continue
+        try:
+            opp_id = name_to_id.get(company_name)
+            if not opp_id:
+                logger.warning(f"No Opportunity found for: {company_name}")
+                failed += 1
+                continue
 
-        payload = {
-            "Growth_News__c": _format_news_html(data),
-            "Growth_Actions__c": _format_actions_html(data),
-        }
+            payload = {
+                "Growth_News__c": _format_news_html(data),
+                "Growth_Actions__c": _format_actions_html(data),
+                "P__c": _format_contact_activity_html(data),
+            }
 
-        resp = sf_patch(f"sobjects/Opportunity/{opp_id}", token, payload)
-        if resp.status_code == 204:
-            logger.info(f"Updated: {company_name}")
-            updated += 1
-        else:
-            logger.error(f"Failed to update {company_name}: {resp.status_code} {resp.text}")
+            resp = sf_patch(f"sobjects/Opportunity/{opp_id}", token, payload)
+            if resp.status_code == 204:
+                logger.info(f"Updated: {company_name}")
+                updated += 1
+            else:
+                logger.error(f"Failed to update {company_name}: {resp.status_code} {resp.text}")
+                failed += 1
+        except Exception as e:
+            logger.error(f"Error processing {company_name}, skipping: {e}")
             failed += 1
 
     logger.info(f"Push complete: {updated} updated, {failed} failed")
@@ -295,6 +376,12 @@ def import_companies_from_salesforce():
     company_names = list(set(c[0] for c in companies))
     company_to_owner = get_owner_emails(token, company_names)
     write_owner_mapping(company_to_owner)
+
+    try:
+        company_to_contact = get_primary_contacts(token, company_names)
+        write_contact_mapping(company_to_contact)
+    except Exception as e:
+        logger.error(f"Contact mapping failed (non-fatal, continuing): {e}")
 
     logger.info("Import complete")
 

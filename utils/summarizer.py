@@ -69,6 +69,118 @@ posts_batch_schema = {
     }
 }
 
+contact_posts_schema = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "contact_posts_analysis",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "posts": {
+                    "type": "array",
+                    "description": "Array of summarized contact posts",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "summary": {
+                                "type": "string",
+                                "description": "Brief one-sentence summary of what the person posted about"
+                            },
+                            "date": {
+                                "type": "string",
+                                "description": "Date of the post in DD/MM/YYYY format"
+                            },
+                            "topic": {
+                                "type": "string",
+                                "description": "Topic category: industry insight, company update, personal achievement, thought leadership, event, hiring, other"
+                            }
+                        },
+                        "required": ["summary", "date", "topic"],
+                        "additionalProperties": False
+                    }
+                }
+            },
+            "required": ["posts"],
+            "additionalProperties": False
+        },
+        "strict": True
+    }
+}
+
+
+def summarize_contact_posts(contact_posts_filepath, contact_name):
+    """
+    Summarize a contact's LinkedIn posts into dot-point summaries.
+
+    Args:
+        contact_posts_filepath: Path to the contact posts JSON file
+        contact_name: Name of the contact person
+
+    Returns:
+        list: List of dicts with 'summary', 'date', 'topic' keys
+        None: On failure
+    """
+    if not contact_posts_filepath or not os.path.exists(contact_posts_filepath):
+        logger.warning(f"Contact posts file not found: {contact_posts_filepath}")
+        return None
+
+    try:
+        posts = parse_posts_file(contact_posts_filepath)
+        if not posts:
+            logger.warning(f"No contact posts found for {contact_name}")
+            return []
+
+        logger.info(f"Summarizing {len(posts)} contact posts for {contact_name}")
+
+        posts_text = ""
+        for i, post in enumerate(posts):
+            posts_text += f"Post #{i}:\n- Date: {post['Date']}\n- Content: {post['Content']}\n\n"
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an analyst summarizing a person's LinkedIn activity. "
+                        "For each post, provide a brief one-sentence summary of what they posted about, "
+                        "the date in DD/MM/YYYY format, and a topic category."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Summarize these LinkedIn posts by {contact_name}. "
+                        f"Provide a brief dot-point summary for each post.\n\n{posts_text}"
+                    ),
+                },
+            ],
+            response_format=contact_posts_schema,
+        )
+
+        result = json.loads(response.choices[0].message.content)
+        summaries = result.get("posts", [])
+
+        for s in summaries:
+            date_str = s.get("date", "Unknown")
+            if date_str and '/' in date_str and len(date_str) == 10:
+                absolute_date = date_str
+                relative_date = calculate_relative_date(absolute_date)
+            else:
+                relative_date = date_str
+                absolute_date = convert_relative_date_to_absolute(relative_date)
+            s["date"] = absolute_date + " - " + relative_date
+
+        summaries.sort(key=lambda x: parse_date_for_sorting(x['date']), reverse=True)
+
+        logger.info(f"Summarized {len(summaries)} contact posts for {contact_name}")
+        return summaries
+
+    except Exception as e:
+        logger.exception(f"Failed to summarize contact posts for {contact_name}: {e}")
+        return None
+
+
 def parse_posts_file(filepath):
     """
     Parse posts from either JSON or CSV format.

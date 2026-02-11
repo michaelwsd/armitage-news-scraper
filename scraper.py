@@ -8,14 +8,48 @@ from company.get_company_info import get_info
 from scrapers.linkedin_scraper_api import scrape_news_linkedin as scrape_linkedin_api
 from scrapers.linkedin_scraper_requests import scrape_news_linkedin as scrape_linkedin_requests
 from scrapers.linkedin_scraper_playwright import scrape_news_linkedin as scrape_linkedin_playwright
-from utils.summarizer import summarize_posts, generate_reachout_message, generate_potential_actions, add_posts_to_news_file
+from utils.summarizer import summarize_posts, generate_reachout_message, generate_potential_actions, add_posts_to_news_file, summarize_contact_posts
 from scrapers.perplexity_scraper import scrape_news_perplexity
+from company.serp_contact_url import get_contact_linkedin_url
+from scrapers.linkedin_contact_scraper import scrape_contact_linkedin
 
 logging.basicConfig(
     level=logging.INFO,  # change to DEBUG for more verbosity
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def load_contact_mapping():
+    """Load the company -> contact_name mapping from JSON."""
+    mapping_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "input", "contact_mapping.json")
+    if not os.path.exists(mapping_path):
+        logger.warning("Contact mapping not found")
+        return {}
+    try:
+        with open(mapping_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to load contact mapping: {e}")
+        return {}
+
+
+def _add_contact_data_to_output(news_filepath, contact_name, contact_summaries):
+    """Add contact name and contact post summaries to the company output JSON."""
+    try:
+        with open(news_filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        data['contact_name'] = contact_name
+        data['contact_posts'] = contact_summaries if contact_summaries else []
+
+        with open(news_filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+
+        post_count = len(data['contact_posts'])
+        logger.info(f"Added contact data to {news_filepath}: {contact_name}, {post_count} posts")
+    except Exception as e:
+        logger.warning(f"Could not add contact data to {news_filepath}: {e}")
 
 
 def ensure_posts_field(news_filepath):
@@ -83,6 +117,7 @@ async def scrape(company, location):
         'company_info': False,
         'news_scrape': False,
         'linkedin_scrape': False,
+        'contact_scrape': False,
         'summarization': False,
         'errors': []
     }
@@ -179,6 +214,40 @@ async def scrape(company, location):
     if scraper_used:
         logger.info(f"LinkedIn scrape completed using: {scraper_used}")
 
+    # Step 3.5: Scrape contact's LinkedIn posts
+    contact_posts_filepath = None
+    contact_summaries = None
+    contact_name = None
+
+    try:
+        contact_mapping = load_contact_mapping()
+        contact_name = contact_mapping.get(company)
+
+        if contact_name:
+            logger.info(f"Found primary contact for {company}: {contact_name}")
+
+            contact_linkedin_url = get_contact_linkedin_url(contact_name, company)
+
+            if contact_linkedin_url:
+                contact_posts_filepath = scrape_contact_linkedin(contact_name, contact_linkedin_url, company)
+
+                if contact_posts_filepath:
+                    contact_summaries = summarize_contact_posts(contact_posts_filepath, contact_name)
+                    if contact_summaries is not None:
+                        results['contact_scrape'] = True
+                        logger.info(f"Contact scrape successful for {contact_name} ({company}): {len(contact_summaries)} posts")
+                    else:
+                        logger.warning(f"Contact post summarization returned None for {contact_name}")
+                else:
+                    logger.warning(f"No LinkedIn posts found for contact {contact_name}")
+            else:
+                logger.warning(f"Could not find LinkedIn URL for contact {contact_name}")
+        else:
+            logger.info(f"No primary contact mapped for {company}")
+    except Exception as e:
+        logger.warning(f"Contact scrape failed for {company}: {e}")
+        results['errors'].append(f"Contact scrape: {e}")
+
     # Step 4: Summarize and merge data (only if we have both files)
     if news_filepath and posts_filepath:
         try:
@@ -214,6 +283,7 @@ async def scrape(company, location):
     if news_filepath:
         ensure_posts_field(news_filepath)
         add_linkedin_url(news_filepath, company_info)
+        _add_contact_data_to_output(news_filepath, contact_name, contact_summaries)
 
     # Cleanup: Delete LinkedIn posts file after summarization
     try:
@@ -223,10 +293,17 @@ async def scrape(company, location):
     except Exception as e:
         logger.warning(f"Error deleting {posts_filepath}: {e}")
 
+    try:
+        if contact_posts_filepath and os.path.exists(contact_posts_filepath):
+            os.remove(contact_posts_filepath)
+            logger.info(f"Deleted contact posts file: {contact_posts_filepath}")
+    except Exception as e:
+        logger.warning(f"Error deleting {contact_posts_filepath}: {e}")
+
     # Log summary for this company
     success_count = sum([results['company_info'], results['news_scrape'],
-                         results['linkedin_scrape'], results['summarization']])
-    logger.info(f"Completed scrape for {company}: {success_count}/4 steps successful")
+                         results['linkedin_scrape'], results['contact_scrape'], results['summarization']])
+    logger.info(f"Completed scrape for {company}: {success_count}/5 steps successful")
 
     return results
 
@@ -295,6 +372,7 @@ async def scrape_companies(companies_list, inter_delay=True):
                 'company_info': False,
                 'news_scrape': False,
                 'linkedin_scrape': False,
+                'contact_scrape': False,
                 'summarization': False,
                 'errors': [f"Critical error: {e}"]
             })
@@ -344,6 +422,7 @@ async def scrape_all_companies():
                 'company_info': False,
                 'news_scrape': False,
                 'linkedin_scrape': False,
+                'contact_scrape': False,
                 'summarization': False,
                 'errors': [f"Critical error: {e}"]
             })
