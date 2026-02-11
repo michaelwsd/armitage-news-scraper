@@ -136,8 +136,7 @@ The system identifies these growth indicators:
 │   └── workflows/
 │       └── run-schedule.yml              # Monthly GitHub Actions schedule
 └── tests/
-    ├── test_owner_mapping.py
-    └── test_live.py
+    └── test_owner_mapping.py
 ```
 
 ## Setup
