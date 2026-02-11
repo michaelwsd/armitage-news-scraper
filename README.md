@@ -26,11 +26,11 @@ The pipeline runs in six stages, orchestrated by `main.py`:
                                │
     ┌──────────────────────────┼──────────────────────────┐
     │                          │                          │
-┌───▼──────────────┐  ┌───────▼───────────┐  ┌───────────▼──────────┐
+┌───▼──────────────┐  ┌────────▼──────────┐  ┌────────────▼─────────┐
 │  3a. Scrape News │  │ 3b. Scrape Co.    │  │ 3c. Scrape Contact   │
 │  Perplexity AI   │  │ LinkedIn Posts    │  │ LinkedIn Posts       │
 │                  │  │ API → Req → Pwrt  │  │ SerpAPI + BrightData │
-└───┬──────────────┘  └───────┬───────────┘  └───────────┬──────────┘
+└───┬──────────────┘  └────────┬──────────┘  └────────────┬─────────┘
     │                          │                          │
     └──────────────────────────┼──────────────────────────┘
                                │
@@ -45,9 +45,9 @@ The pipeline runs in six stages, orchestrated by `main.py`:
                                │
               ┌────────────────┼────────────────┐
               │                │                │
-   ┌──────────▼────┐  ┌───────▼───────┐  ┌─────▼─────┐
-   │ 5a. Salesforce │  │ 5b. Email     │  │ 5c. Clean │
-   │ Push to CRM    │  │ Owner Digests │  │ up files  │
+   ┌──────────▼────┐  ┌────────▼──────┐  ┌──────▼────┐
+   │ 5a. Salesforce│  │ 5b. Email     │  │ 5c. Clean │
+   │ Push to CRM   │  │ Owner Digests │  │ up files  │
    └───────────────┘  └───────────────┘  └───────────┘
 ```
 
